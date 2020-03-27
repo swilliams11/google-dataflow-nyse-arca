@@ -1,9 +1,14 @@
 # google-dataflow-nyse-arca
 
-This repository demonstrates how to create a DataFlow ETL to read data GCP cloud storage, process it, and write it to 
+This repository demonstrates how to create a DataFlow ETL job to read a CSV from GCP cloud storage, process it, and write it to 
 GCP BigQuery.  This particular example uses a large data set (12GB extracted), so there could be a significant cost
 to running this example in your GCP environment.
 
+## Summary
+The DataFlow job will extract the records from the NYSE ARCA file and attach additional descriptions to some of the codes included in the file. 
+For example, the first column is the `message_type` which can be `A, M, I, D, or V`, so the job will include an additional column `message_type_descr` that describes these codes.
+After you complete the steps below, it will create a BigQuery table named `eqy_arca_book_20130403_all` in the data set named `nyse_arca_java`.
+ 
 ## Getting started  
 
 ### Prerequisites
@@ -87,5 +92,9 @@ gcloud dataflow jobs run nyse-arca-book-java-all \
 This is the job graph.
 ![Job Details](/images/jobsummary.png)
 
-It took about 15 minutes to process 213M records (14GB file).
+It took about 15 minutes to process 213M records (12GB file).
 ![Job Metrics](/images/jobmetrics.png)
+
+## TODOs
+* This Java class hard-codes the description columns into the job. These should really be dynamically added from an external file and injected into the DataFlow job with command line parameters.
+  * [Apache Beam side inputs](https://beam.apache.org/documentation/programming-guide/#side-inputs) 
