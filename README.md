@@ -85,7 +85,7 @@ gcloud dataflow jobs run nyse-arca-book-java-all \
 ## Results
 ### DataFlow Job
 This is the job graph.
-![Job Details](/images/jobdetails.png)
+![Job Details](/images/jobsummary.png)
 
 It took about 15 minutes to process 213M records (14GB file).
 ![Job Metrics](/images/jobmetrics.png)
