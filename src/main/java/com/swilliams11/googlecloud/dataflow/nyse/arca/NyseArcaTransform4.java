@@ -60,25 +60,24 @@ This is the updated code with 10000 records.
 package com.swilliams11.googlecloud.dataflow.nyse.arca;
 
 import com.google.api.services.bigquery.model.TableFieldSchema;
+import com.google.api.services.bigquery.model.TableRow;
 import com.google.api.services.bigquery.model.TableSchema;
 import com.google.cloud.teleport.templates.common.BigQueryConverters;
+import com.google.cloud.teleport.templates.common.JavascriptTextTransformer.JavascriptTextTransformerOptions;
 import com.google.gson.Gson;
 import org.apache.beam.runners.dataflow.options.DataflowPipelineOptions;
-import com.google.cloud.teleport.templates.common.JavascriptTextTransformer.JavascriptTextTransformerOptions;
 import org.apache.beam.sdk.Pipeline;
 import org.apache.beam.sdk.io.TextIO;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.Write.CreateDisposition;
 import org.apache.beam.sdk.io.gcp.bigquery.BigQueryIO.Write.WriteDisposition;
+import org.apache.beam.sdk.io.gcp.bigquery.WriteResult;
 import org.apache.beam.sdk.options.Description;
 import org.apache.beam.sdk.options.PipelineOptionsFactory;
 import org.apache.beam.sdk.options.Validation;
 import org.apache.beam.sdk.options.ValueProvider;
 import org.apache.beam.sdk.options.ValueProvider.NestedValueProvider;
-import org.apache.beam.sdk.transforms.DoFn;
-import org.apache.beam.sdk.transforms.Flatten;
-import org.apache.beam.sdk.transforms.ParDo;
-import org.apache.beam.sdk.transforms.SerializableFunction;
+import org.apache.beam.sdk.transforms.*;
 import org.apache.beam.sdk.values.*;
 import org.joda.time.LocalDate;
 import org.joda.time.LocalDateTime;
@@ -93,10 +92,11 @@ import java.util.List;
 /**
  * Pipeline to read text from TextIO, process the data, and write it to GCS.
  */
-public class NyseArcaTransform {
+public class NyseArcaTransform4 {
 
-  /** Options supported by {@link NyseArcaTransform}. */
+  /** Options supported by {@link NyseArcaTransform4}. */
   public interface Options extends DataflowPipelineOptions, JavascriptTextTransformerOptions {
+
     @Description("The GCS location of the text you'd like to process")
     ValueProvider<String> getInputFilePattern();
 
@@ -123,7 +123,7 @@ public class NyseArcaTransform {
     DataflowProfilingAgentConfiguration getProfilingAgentConfiguration();
   }
 
-  private static final Logger LOG = LoggerFactory.getLogger(NyseArcaTransform.class);
+  private static final Logger LOG = LoggerFactory.getLogger(NyseArcaTransform4.class);
 
   private static final String BIGQUERY_SCHEMA = "BigQuery Schema";
   private static final String NAME = "name";
@@ -145,8 +145,12 @@ public class NyseArcaTransform {
   private static final TupleTag<String> systemEvent =
           new TupleTag<String>(){};
 
+  private static String [] argsVar;
+  private static Options optionsVar;
+
   public static void main(String[] args) {
     Options options = PipelineOptionsFactory.fromArgs(args).withValidation().as(Options.class);
+    optionsVar = options;
     Pipeline pipeline = Pipeline.create(options);
 
     PCollectionTuple taggedRecords = pipeline
@@ -158,80 +162,32 @@ public class NyseArcaTransform {
                     .and(systemEvent)));
         //pipeline.run();
 
-    //Pipeline  = Pipeline.create(options);
-        PCollection<String> addRecordsCollection = taggedRecords.get(addOrder)
-                .apply("Parse add records and convert CSV rows to JSON objects ", ParDo.of(new ParseAddRecords()));
+        taggedRecords.get(addOrder)
+                .apply("Parse add records and convert CSV rows to JSON objects ", ParDo.of(new ParseAddRecords()))
+                .apply(BigQueryConverters.jsonToTableRow())
+                .apply("Insert into BigQuery", bigquery());
 
-        PCollection<String> deleteOrdersCollection = taggedRecords.get(deleteOrder)
-                .apply("Parse delete records and convert CSV rows to JSON objects ", ParDo.of(new ParseDeleteRecords()));
-        PCollection<String> modifyOrdersCollection = taggedRecords.get(modifyOrder)
-                .apply("Parse modify records and convert CSV rows to JSON objects ", ParDo.of(new ParseModifyRecords()));
-        PCollection<String> imbalanceRecordsCollection = taggedRecords.get(imbalanceMessage)
-                .apply("Parse imbalance records and convert CSV rows to JSON objects ", ParDo.of(new ParseImbalance()));
+        taggedRecords.get(deleteOrder)
+                .apply("Parse delete records and convert CSV rows to JSON objects ", ParDo.of(new ParseDeleteRecords()))
+                .apply(BigQueryConverters.jsonToTableRow())
+              .apply("Insert into BigQuery", bigquery());
+
+        PCollection modifyOrdersCollection = taggedRecords.get(modifyOrder)
+                .apply("Parse modify records and convert CSV rows to JSON objects ", ParDo.of(new ParseModifyRecords()))
+                .apply(BigQueryConverters.jsonToTableRow());
+        modifyOrdersCollection.apply("Insert into BigQuery", bigquery());
+
+        PCollection imbalanceRecordsCollection = taggedRecords.get(imbalanceMessage)
+                .apply("Parse imbalance records and convert CSV rows to JSON objects ", ParDo.of(new ParseImbalance()))
+                .apply(BigQueryConverters.jsonToTableRow());
+        imbalanceRecordsCollection.apply("Insert into BigQuery", bigquery());
+
         /*PCollection<String> systemEventsCollection = taggedRecords.get(systemEvent)
                 .apply("Parse system events and convert CSV rows to JSON objects ", ParDo.of(new ParseAddRecords()));*/
 
-    //merge the two PCollections with Flatten
-    PCollectionList<String> collectionList = PCollectionList.of(addRecordsCollection)
-            .and(deleteOrdersCollection)
-            .and(modifyOrdersCollection)
-            .and(imbalanceRecordsCollection);
-    PCollection<String> mergedCollectionWithFlatten = collectionList
-            .apply(Flatten.<String>pCollections());
-
-    // continue with the new merged PCollection
-    mergedCollectionWithFlatten.apply(BigQueryConverters.jsonToTableRow())
-        .apply(
-            "Insert into Bigquery",
-            BigQueryIO.writeTableRows()
-                .withSchema(
-                    NestedValueProvider.of(
-                        options.getJSONPath(),
-                        new SerializableFunction<String, TableSchema>() {
-
-                          @Override
-                          public TableSchema apply(String jsonPath) {
-
-                            TableSchema tableSchema = new TableSchema();
-                            List<TableFieldSchema> fields = new ArrayList<>();
-                            SchemaParser schemaParser = new SchemaParser();
-                            JSONObject jsonSchema;
-
-                            try {
-
-                              jsonSchema = schemaParser.parseSchema(jsonPath);
-
-                              JSONArray bqSchemaJsonArray =
-                                  jsonSchema.getJSONArray(BIGQUERY_SCHEMA);
-
-                              for (int i = 0; i < bqSchemaJsonArray.length(); i++) {
-                                JSONObject inputField = bqSchemaJsonArray.getJSONObject(i);
-                                TableFieldSchema field =
-                                    new TableFieldSchema()
-                                        .setName(inputField.getString(NAME))
-                                        .setType(inputField.getString(TYPE));
-
-                                if (inputField.has(MODE)) {
-                                  field.setMode(inputField.getString(MODE));
-                                }
-
-                                fields.add(field);
-                              }
-                              tableSchema.setFields(fields);
-
-                            } catch (Exception e) {
-                              throw new RuntimeException(e);
-                            }
-                            return tableSchema;
-                          }
-                        }))
-                .to(options.getOutputTable())
-                .withCreateDisposition(CreateDisposition.CREATE_IF_NEEDED)
-                .withWriteDisposition(WriteDisposition.WRITE_TRUNCATE)
-                .withCustomGcsTempLocation(options.getBigQueryLoadingTemporaryDirectory()));
-
     pipeline.run();
   }
+
 
   /**
    * This method separates the records into 5 groups - add, delete, modify and imbalance and system event.
@@ -261,6 +217,55 @@ public class NyseArcaTransform {
     }
   }
 
+  static  BigQueryIO.Write<TableRow> bigquery (){
+      return BigQueryIO.writeTableRows()
+              .withSchema(
+                      NestedValueProvider.of(
+                              optionsVar.getJSONPath(),
+                              new SerializableFunction<String, TableSchema>() {
+
+                                @Override
+                                public TableSchema apply(String jsonPath) {
+
+                                  TableSchema tableSchema = new TableSchema();
+                                  List<TableFieldSchema> fields = new ArrayList<>();
+                                  SchemaParser schemaParser = new SchemaParser();
+                                  JSONObject jsonSchema;
+
+                                  try {
+
+                                    jsonSchema = schemaParser.parseSchema(jsonPath);
+
+                                    JSONArray bqSchemaJsonArray =
+                                            jsonSchema.getJSONArray(BIGQUERY_SCHEMA);
+
+                                    for (int i = 0; i < bqSchemaJsonArray.length(); i++) {
+                                      JSONObject inputField = bqSchemaJsonArray.getJSONObject(i);
+                                      TableFieldSchema field =
+                                              new TableFieldSchema()
+                                                      .setName(inputField.getString(NAME))
+                                                      .setType(inputField.getString(TYPE));
+
+                                      if (inputField.has(MODE)) {
+                                        field.setMode(inputField.getString(MODE));
+                                      }
+
+                                      fields.add(field);
+                                    }
+                                    tableSchema.setFields(fields);
+
+                                  } catch (Exception e) {
+                                    throw new RuntimeException(e);
+                                  }
+                                  return tableSchema;
+                                }
+                              }))
+              .to(optionsVar.getOutputTable())
+              .withCreateDisposition(CreateDisposition.CREATE_IF_NEEDED)
+              .withWriteDisposition(WriteDisposition.WRITE_APPEND)
+              .withCustomGcsTempLocation(optionsVar.getBigQueryLoadingTemporaryDirectory());
+  }
+
   /**
    * Process Add records.
    */
@@ -270,7 +275,7 @@ public class NyseArcaTransform {
       String[] lineArray = row.split(",");
           AddOrderRecord a = new AddOrderRecord(lineArray);
           String json = a.toJSON();
-          LOG.info(json);
+          //LOG.info(json);
           out.output(json);
       }
     }
@@ -284,7 +289,7 @@ public class NyseArcaTransform {
       String[] lineArray = row.split(",");
       DeleteRecord a = new DeleteRecord(lineArray);
       String json = a.toJSON();
-      LOG.info(json);
+      //LOG.info(json);
       out.output(json);
     }
   }
@@ -298,7 +303,7 @@ public class NyseArcaTransform {
       String[] lineArray = row.split(",");
       ModifyRecord a = new ModifyRecord(lineArray);
       String json = a.toJSON();
-      LOG.info(json);
+      //LOG.info(json);
       out.output(json);
     }
   }
@@ -314,7 +319,7 @@ public class NyseArcaTransform {
       String[] lineArray = row.split(",");
       ImbalanceRecord a = new ImbalanceRecord(lineArray);
       String json = a.toJSON();
-      LOG.info(json);
+      //LOG.info(json);
       out.output(json);
     }
   }

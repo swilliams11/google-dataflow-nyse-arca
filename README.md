@@ -48,6 +48,7 @@ Open your IDE (IntelliJ) and then open the terminal tab and execute the followin
 
 
 #### 4. From your IDE (IntelliJ) terminal tab
+##### NyseArcaTransform class
 * Execute the following:
 ```shell script
 mvn clean compile
@@ -62,7 +63,7 @@ This creates a batch job description named `nys-arca-book-job-all-spec.json`.
  --templateLocation=gs://$BUCKET/nyse-arca-book-job-all-spec.json \
  --runner=DataflowRunner"
 ```
-##### NYSE - 14GB file
+###### NYSE - 14GB file
 Execute the job with the required options.  BE CAREFUL - This command assumes your are using the **14GB file** and it consumes GCP resources.
   
 ```shell script
@@ -72,7 +73,7 @@ gcloud dataflow jobs run nyse-arca-book-java-all \
  --parameters=JSONPath=gs://$BUCKET/big-query-schema.json,inputFilePattern=gs://$BUCKET/EQY_US_ALL_ARCA_BOOK_20130403.csv,outputTable=$PROJECT:nyse_arca_java.eqy_arca_book_20130403_all,bigQueryLoadingTemporaryDirectory=gs://$BUCKET/bq_load_temp/
 ```
 
-##### NYSE - Small File (10,000 records)
+###### NYSE - Small File (10,000 records)
 Execute the following command if you created the smaller file. 
 
 ```shell script
@@ -82,19 +83,91 @@ gcloud dataflow jobs run nyse-arca-book-java-all \
  --parameters=JSONPath=gs://$BUCKET/big-query-schema.json,inputFilePattern=gs://$BUCKET/EQY_US_ALL_ARCA_BOOK_20130403_smallfile.csv,outputTable=$PROJECT:nyse_arca_java.eqy_arca_book_20130403_all,bigQueryLoadingTemporaryDirectory=gs://$BUCKET/bq_load_temp/
 ```
 
+##### NyseArcaTransform4 class
+
+```shell script
+ mvn compile exec:java -Dexec.mainClass=com.swilliams11.googlecloud.dataflow.nyse.arca.NyseArcaTransform4 -Dexec.cleanupDaemonThreads=false -Dexec.args=" \
+ --project=$PROJECT \
+ --stagingLocation=gs://$BUCKET/staging \
+ --tempLocation=gs://$BUCKET/temp \
+ --templateLocation=gs://$BUCKET/nyse-arca-book-job-all-spec.json \
+ --runner=DataflowRunner"
+```
+###### NYSE - 14GB file
+Execute the job with the required options.  BE CAREFUL - This command assumes your are using the **14GB file** and it consumes GCP resources.
+  
+```shell script
+gcloud dataflow jobs run nyse-arca-book-java-all-v2 \                                                                                            
+ --gcs-location=gs://$BUCKET/nyse-arca-book-job-all-4-spec.json \
+ --zone=us-central1-f \
+ --parameters=JSONPath=gs://$BUCKET/big-query-schema.json,inputFilePattern=gs://$BUCKET/EQY_US_ALL_ARCA_BOOK_20130403.csv,outputTable=$PROJECT:nyse_arca_java.eqy_arca_book_20130403_all_v2,bigQueryLoadingTemporaryDirectory=gs://$BUCKET/bq_load_temp/
+```
+
+###### NYSE - Small File (10,000 records)
+Execute the following command if you created the smaller file. 
+
+```shell script
+gcloud dataflow jobs run nyse-arca-book-java-all-v2 \                                                                                            
+ --gcs-location=gs://$BUCKET/nyse-arca-book-job-all-4-spec.json \
+ --zone=us-central1-f \
+ --parameters=JSONPath=gs://$BUCKET/big-query-schema.json,inputFilePattern=gs://$BUCKET/EQY_US_ALL_ARCA_BOOK_20130403_smallfile.csv,outputTable=$PROJECT:nyse_arca_java.eqy_arca_book_20130403_all_v2,bigQueryLoadingTemporaryDirectory=gs://$BUCKET/bq_load_temp/
+```
+
 ## Source Files
 * `big_query_schema.json` is the schema that the Big Query par do function uses to create the table and insert records into the table.
-* `com.swilliams11.googlecloud.dataflow.nyse.arca.NyseArcaTransform` contains the source code. 
+* `com.swilliams11.googlecloud.dataflow.nyse.arca.NyseArcaTransform` contains the source code.
+* `com.swilliams11.googlecloud.dataflow.nyse.arca.NyseArcaTransform4` contains the source code for the modified pipeline. 
 
 
 ## Results
 ### DataFlow Job
+#### NyseArcaTransform pipeline
 This is the job graph.
-![Job Details](/images/jobsummary.png)
+![NyseArcaTransform Job Details](/images/jobsummary.png)
 
 It took about 15 minutes to process 213M records (12GB file).
 ![Job Metrics](/images/jobmetrics.png)
 
+#### NyseArcaTransform4 pipeline
+This is the job graph.
+![NyseArcaTransform4 Job Details](/images/nysearcatransform4_jobsummary.png)
+This job took 24 minutes to complete.  
+
+
+## Profiling DataFlow Jobs
+You can profile your DataFlow job with the following option on the command line. This will provide insight 
+into what functions are consuming CPU time and it allows you to determine where to focus your time on optimizing
+your code.  
+
+### Enabled the Profiling API for your GCP project
+```shell script
+gcloud services enable cloudprofiler.googleapis.com
+```
+
+Add the following option - `--profilingAgentConfiguration='{\"APICurated\":true}'` - to the `mvn compile` command.
+
+### Enable profiling for NyseArcaTransform pipeline
+```shell script
+ mvn compile exec:java -Dexec.mainClass=com.swilliams11.googlecloud.dataflow.nyse.arca.NyseArcaTransform -Dexec.cleanupDaemonThreads=false -Dexec.args=" \
+  --project=$PROJECT \
+  --stagingLocation=gs://$BUCKET/staging \
+  --tempLocation=gs://$BUCKET/temp \
+  --templateLocation=gs://$BUCKET/nyse-arca-book-job-all-spec.json \
+  --runner=DataflowRunner --profilingAgentConfiguration='{\"APICurated\":true}'"
+```
+
+### Enable profiling for NyseArcaTransform4 pipeline
+```shell script
+mvn compile exec:java -Dexec.mainClass=com.swilliams11.googlecloud.dataflow.nyse.arca.NyseArcaTransform4 -Dexec.cleanupDaemonThreads=false -Dexec.args=" \
+ --project=$PROJECT \
+ --stagingLocation=gs://$BUCKET/staging \
+ --tempLocation=gs://$BUCKET/temp \
+ --templateLocation=gs://$BUCKET/nyse-arca-book-job-all-4-spec.json \
+ --runner=DataflowRunner --profilingAgentConfiguration='{\"APICurated\":true}'"
+```
+
 ## TODOs
 * This Java class hard-codes the description columns into the job. These should really be dynamically added from an external file and injected into the DataFlow job with command line parameters.
   * [Apache Beam side inputs](https://beam.apache.org/documentation/programming-guide/#side-inputs) 
+* Finish the Date/Time implementation
+* Determine if there is a faster implementation for Pojo to JSON implementation.
