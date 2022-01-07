@@ -41,7 +41,7 @@
         <bigtable-beam-import.version>1.5.0</bigtable-beam-import.version>
         <bigquery.version>v2-rev20190917-1.30.3</bigquery.version>
         <protobuf-util.version>3.6.1</protobuf-util.version>
-        <protobuf.version>3.6.0</protobuf.version>
+        <protobuf.version>3.16.1</protobuf.version>
         <findbugs.version>3.0.1</findbugs.version>
         <guava.version>20.0</guava.version>
         <json.version>20160810</json.version>
